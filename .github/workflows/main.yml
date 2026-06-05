@@ -21,14 +21,12 @@ jobs:
           python-version: "3.12"
 
       - name: Install deps
-        run: |
-          pip install --no-cache-dir setuptools
-          pip install --no-cache-dir -r requirements.txt
-          playwright install chromium --with-deps
+        run: pip install --no-cache-dir -r requirements.txt
 
       - name: Run login
         env:
           ACCOUNTS_BATCH: ${{ secrets.ACCOUNTS_BATCH }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
         run: python login.py
 
       - name: Upload screenshots
