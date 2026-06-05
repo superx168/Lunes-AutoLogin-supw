@@ -2,7 +2,7 @@ name: Lunes Auto Login (Every 14 Days)
 
 on:
   schedule:
-    - cron: "0 2 */14 * *"  # 每14天 UTC 02:00（北京10:00）
+    - cron: "0 2 */14 * *"
   workflow_dispatch:
 
 permissions:
@@ -14,34 +14,24 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: 📥 Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: |
-          pip install --upgrade pip
           pip install -r requirements.txt
-          playwright install chromium --with-deps
 
-      - name: 🚀 Run login script
+      - name: Run login
         env:
           ACCOUNTS_BATCH: ${{ secrets.ACCOUNTS_BATCH }}
-        run: |
-          python login.py
+        run: python login.py
 
-      - name: 📸 Upload debug screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots
-          path: screenshots/*.png
-
-      - name: ⏱️ Commit time.txt
+      - name: Commit timestamp
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -49,9 +39,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           echo "$(date +'%Y-%m-%d %H:%M:%S')" > time.txt
           git add time.txt
-          if git diff --cached --quiet; then
-            echo "无变化"
-          else
-            git commit -m "⏱️ $(date +'%Y-%m-%d %H:%M:%S')"
-            git push origin HEAD:main
-          fi
+          git diff --cached --quiet || (git commit -m "run $(date +'%Y-%m-%d %H:%M')" && git push)
