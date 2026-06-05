@@ -1,2 +1,2 @@
-cloakbrowser
+cloakbrowser[geoip]
 requests==2.32.3
