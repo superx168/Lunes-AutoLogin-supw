@@ -1,7 +1,9 @@
-"""Lunes Host auto login - CloakBrowser + xvfb + gost + mouse click Turnstile"""
+"""Lunes Host auto login - CloakBrowser + capsolver Turnstile"""
 import os, sys, time, requests
 
 LOGIN_URL = "https://betadash.lunes.host/login"
+SITEKEY = "0x4AAAAAAA6Rk8huct44_xr7"
+CAPSOLVER_API = "https://api.capsolver.com"
 
 def tg_send(text, token="", chat_id=""):
     token, chat_id = (token or "").strip(), (chat_id or "").strip()
@@ -25,11 +27,50 @@ def build_accounts():
                 "tg_chat": parts[3] if len(parts) > 3 else ""})
     return accounts
 
-def login_one(email, password):
+def solve_turnstile(api_key, website_url, sitekey):
+    """Use capsolver to solve Turnstile"""
+    # Create task
+    resp = requests.post(f"{CAPSOLVER_API}/createTask", json={
+        "clientKey": api_key,
+        "task": {
+            "type": "AntiTurnstileTaskProxyLess",
+            "websiteURL": website_url,
+            "websiteKey": sitekey,
+            "metadata": {"type": "turnstile"}
+        }
+    }, timeout=30)
+    data = resp.json()
+    print(f"createTask: {data}")
+    if data.get("errorId", 1) != 0:
+        print(f"capsolver error: {data.get('errorDescription', 'unknown')}")
+        return None
+    task_id = data["taskId"]
+
+    # Poll for result
+    for i in range(60):
+        time.sleep(3)
+        resp = requests.post(f"{CAPSOLVER_API}/getTaskResult", json={
+            "clientKey": api_key,
+            "taskId": task_id
+        }, timeout=30)
+        data = resp.json()
+        if data.get("status") == "ready":
+            token = data["solution"]["token"]
+            print(f"Turnstile solved! ({(i+1)*3}s) token={token[:30]}...")
+            return token
+        elif data.get("errorId", 0) != 0:
+            print(f"capsolver error: {data.get('errorDescription')}")
+            return None
+        if i % 5 == 0:
+            print(f"  waiting... ({(i+1)*3}s)")
+    print("capsolver timeout")
+    return None
+
+def login_one(api_key, email, password):
     from cloakbrowser import launch
     proxy = os.getenv("PROXY_URL", "")
     print(f"Proxy: {proxy}")
-    browser = launch(proxy=proxy, humanize=True, headless=False)
+    browser = launch(proxy=proxy, humanize=True, headless=True)
     try:
         page = browser.new_page()
         print(f"Opening login: {email}")
@@ -42,56 +83,21 @@ def login_one(email, password):
         page.fill("#password", password)
         print("Credentials filled")
 
-        # Find CF iframe and click with mouse
-        print("Looking for Turnstile...")
-        iframe_box = page.evaluate('''() => {
-            const frames = document.querySelectorAll('iframe');
-            for (const f of frames) {
-                if (f.src && f.src.includes('challenges.cloudflare')) {
-                    const rect = f.getBoundingClientRect();
-                    return {x: rect.x, y: rect.y, w: rect.width, h: rect.height};
-                }
-            }
-            return null;
-        }''')
-        print(f"CF iframe: {iframe_box}")
-
-        if iframe_box:
-            # Click left side of iframe where checkbox is
-            cx = iframe_box['x'] + 20
-            cy = iframe_box['y'] + iframe_box['h'] / 2
-            print(f"Mouse click at ({cx}, {cy})")
-            page.mouse.move(cx, cy)
-            time.sleep(0.5)
-            page.mouse.click(cx, cy)
-            print("Clicked Turnstile")
-            time.sleep(5)
-
-            # Maybe need a second click
-            val = page.evaluate('document.querySelector("[name=cf-turnstile-response]")?.value || ""')
-            if not val or len(val) <= 10:
-                print("Second click attempt...")
-                page.mouse.click(cx, cy)
-                time.sleep(5)
-
-        # Wait for token
-        print("Waiting for Turnstile token...")
-        solved = False
-        for i in range(30):
-            time.sleep(2)
-            val = page.evaluate('document.querySelector("[name=cf-turnstile-response]")?.value || ""')
-            if val and len(val) > 10:
-                print(f"Turnstile solved! ({(i+1)*2}s)")
-                solved = True
-                break
-            if "/login" not in page.url:
-                print(f"Auto-redirected: {page.url}")
-                solved = True
-                break
-        if not solved:
-            print("Turnstile timeout")
+        # Solve Turnstile via capsolver
+        print("Solving Turnstile via capsolver...")
+        token = solve_turnstile(api_key, LOGIN_URL, SITEKEY)
+        if not token:
+            print("Failed to solve Turnstile")
             page.screenshot(path=f"ts-fail-{email.split('@')[0]}.png")
+            return False
 
+        # Inject the token into the hidden field
+        page.evaluate(f'''
+            document.querySelector('[name="cf-turnstile-response"]').value = "{token}";
+        ''')
+        print("Token injected")
+
+        # Submit
         page.click('button[type="submit"]')
         print("Submitted")
 
@@ -117,6 +123,11 @@ def login_one(email, password):
             except: pass
             return True
         else:
+            # Check for error messages
+            try:
+                body = page.locator("body").text_content() or ""
+                print(f"Page text: {body[:300]}")
+            except: pass
             print("Login FAILED")
             return False
     except Exception as e:
@@ -127,13 +138,16 @@ def login_one(email, password):
         browser.close()
 
 def main():
+    api_key = os.getenv("CAPSOLVER_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Missing CAPSOLVER_KEY")
     accounts = build_accounts()
     ok, fail = 0, 0
     results = []
     for i, acc in enumerate(accounts, 1):
         email = acc["email"]
         print(f"\n{"="*50}\n[{i}/{len(accounts)}] {email}\n{"="*50}")
-        success = login_one(email, acc["password"])
+        success = login_one(api_key, email, acc["password"])
         if success: ok += 1; results.append(f"OK {email}")
         else: fail += 1; results.append(f"FAIL {email}")
         tg_send(f"{'✅' if success else '❌'} Lunes {'登录成功' if success else '登录失败'}\n{email}",
