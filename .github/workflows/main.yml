@@ -20,19 +20,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Setup local HTTP proxy via gost
+      - name: Setup gost v3 proxy
         run: |
-          # Download gost
-          GOST_VER=2.12.0
-          wget -q "https://github.com/ginuerzh/gost/releases/download/v${GOST_VER}/gost-linux-amd64-${GOST_VER}.tgz"
-          tar xzf gost-linux-amd64-${GOST_VER}.tgz
-          mv gost /usr/local/bin/gost
-          chmod +x /usr/local/bin/gost
+          wget -q "https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz" -O /tmp/gost.tar.gz
+          tar xzf /tmp/gost.tar.gz -C /tmp
+          chmod +x /tmp/gost
           # Start gost: local HTTP proxy -> upstream SOCKS5
-          nohup gost -L http://:8888 -F socks5://${{ secrets.PROXY_URL }} > /tmp/gost.log 2>&1 &
+          nohup /tmp/gost -L http://:8888 -F "socks5://${{ secrets.SOCKS5_PROXY }}" > /tmp/gost.log 2>&1 &
           sleep 3
-          # Test proxy
-          curl -s --proxy http://127.0.0.1:8888 https://httpbin.org/ip || echo "Proxy test via gost failed"
+          # Test proxy works
+          curl -s --proxy http://127.0.0.1:8888 --connect-timeout 10 https://httpbin.org/ip && echo "Proxy OK" || echo "Proxy FAILED"
+          cat /tmp/gost.log
 
       - name: Install deps
         run: pip install --no-cache-dir -r requirements.txt
