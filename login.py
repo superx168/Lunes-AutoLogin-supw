@@ -1,4 +1,4 @@
-"""Lunes Host 自动登录 - CloakBrowser + gost proxy"""
+"""Lunes Host 自动登录 - CloakBrowser + xvfb + gost proxy"""
 import os, sys, time, requests
 
 LOGIN_URL = "https://betadash.lunes.host/login"
@@ -43,7 +43,7 @@ def login_one(email, password):
     browser = launch(
         proxy=proxy,
         humanize=True,
-        headless=True,
+        headless=False,
     )
     
     try:
@@ -52,89 +52,67 @@ def login_one(email, password):
         page.goto(LOGIN_URL, timeout=60000)
         time.sleep(5)
         
-        print(f"Page loaded: {page.url}")
+        print(f"Page: {page.url}")
         
-        # 1. Fill email and password FIRST
         page.wait_for_selector("#email", state="visible", timeout=25000)
         page.fill("#email", email)
         page.fill("#password", password)
         print("Credentials filled")
         
-        # 2. Click the Turnstile checkbox "Verify you are human"
-        print("Looking for Turnstile checkbox...")
+        # Click Turnstile checkbox
+        print("Looking for Turnstile...")
         try:
-            # The checkbox is inside the Cloudflare iframe
-            cf_frame = None
             for frame in page.frames:
                 if "challenges.cloudflare" in (frame.url or ""):
-                    cf_frame = frame
-                    print(f"Found CF frame: {frame.url[:60]}")
+                    print(f"Found CF frame: {frame.url[:80]}")
+                    # Try clicking the iframe area itself
+                    el = frame.locator("#challenge-stage")
+                    if el.count() > 0:
+                        print("Clicking challenge-stage...")
+                        el.first.click(timeout=5000)
+                    else:
+                        # Click the body of the frame
+                        frame.locator("body").first.click(timeout=5000)
+                    print("Clicked Turnstile area")
                     break
-            
-            if cf_frame:
-                # Try to find and click the checkbox in the iframe
-                checkbox = cf_frame.locator("input[type='checkbox']")
-                if checkbox.count() > 0:
-                    print("Found checkbox, clicking...")
-                    checkbox.first.click(timeout=10000)
-                    time.sleep(3)
-                    print("Clicked Turnstile checkbox")
-                else:
-                    # Try clicking the label/body area of the widget
-                    print("No checkbox found, trying to click the widget area...")
-                    body = cf_frame.locator("body")
-                    if body.count() > 0:
-                        body.first.click(timeout=10000)
-                        time.sleep(3)
-            else:
-                print("No CF frame found, checking for shadow DOM...")
         except Exception as e:
-            print(f"Turnstile click attempt: {e}")
+            print(f"Turnstile click: {e}")
         
-        # 3. Wait for Turnstile token to appear
+        # Wait for token
         print("Waiting for Turnstile token...")
         solved = False
         for i in range(30):
             time.sleep(2)
             val = page.evaluate('document.querySelector("[name=cf-turnstile-response]")?.value || ""')
             if val and len(val) > 10:
-                print(f"Turnstile solved! ({(i+1)*2}s) token={val[:30]}...")
+                print(f"Turnstile solved! ({(i+1)*2}s)")
                 solved = True
                 break
         if not solved:
             print("Turnstile timeout")
         
-        page.screenshot(path=f"before-submit-{email.split('@')[0]}.png")
+        page.screenshot(path=f"before-{email.split('@')[0]}.png")
         
-        # 4. Now click submit
+        # Submit
         page.click('button[type="submit"]')
-        print("Submit clicked, waiting for redirect...")
+        print("Submitted")
         
-        # 5. Wait for redirect
         for i in range(20):
             time.sleep(2)
-            url = page.url
-            if "/login" not in url:
-                print(f"Redirected after {(i+1)*2}s: {url}")
+            if "/login" not in page.url:
+                print(f"Redirected: {page.url}")
                 break
         else:
             print(f"Still on: {page.url}")
         
-        page.screenshot(path=f"after-submit-{email.split('@')[0]}.png")
+        page.screenshot(path=f"after-{email.split('@')[0]}.png")
         
-        url = page.url
-        print(f"Final URL: {url}")
-        
-        # Proper check: URL must have left /login
-        logged_in = "/login" not in url
-        
-        if logged_in:
+        if "/login" not in page.url:
             print("Login success!")
             for sid in ["51160", "60685"]:
                 try:
                     page.goto(f"https://betadash.lunes.host/servers/{sid}", timeout=30000)
                     time.sleep(3)
-                    page.screenshot(path=f"server-{sid}.png")
                     print(f"  Visited server {sid}")
                 except Exception as e:
                     print(f"  Server {sid}: {e}")
@@ -144,7 +122,7 @@ def login_one(email, password):
                 pass
             return True
         else:
-            print("Login FAILED - still on login page")
+            print("Login FAILED")
             return False
     except Exception as e:
         print(f"Error: {e}")
