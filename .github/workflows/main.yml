@@ -11,11 +11,10 @@ permissions:
 jobs:
   renew:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -23,18 +22,10 @@ jobs:
       - name: Install deps
         run: pip install --no-cache-dir -r requirements.txt
 
-      - name: Run login
+      - name: Run keepalive
         env:
           ACCOUNTS_BATCH: ${{ secrets.ACCOUNTS_BATCH }}
-          CAPSOLVER_KEY: ${{ secrets.CAPSOLVER_KEY }}
         run: python login.py
-
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots
-          path: "*.png"
 
       - name: Commit timestamp
         if: always()
