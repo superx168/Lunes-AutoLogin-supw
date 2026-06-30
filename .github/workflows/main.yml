@@ -1,8 +1,9 @@
 name: Lunes Auto Login
 
 on:
-  schedule:
-    - cron: "0 2 */14 * *"
+schedule:
+  - cron: "0 2 1,14 * *"
+  - cron: "0 2 27 * *"   # 补充月底，避免跨月间隔过长
   workflow_dispatch:
 
 permissions:
