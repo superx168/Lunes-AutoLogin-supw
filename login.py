@@ -11,6 +11,7 @@ from pyvirtualdisplay import Display
 
 LOGIN_URL = "https://betadash.lunes.host/login?next=/"
 HOME_URL = "https://betadash.lunes.host/"
+LOGOUT_URL = "https://betadash.lunes.host/logout"
 SERVER_URL_TPL = "https://betadash.lunes.host/servers/{server_id}"
 
 SCREENSHOT_DIR = "screenshots"
@@ -170,23 +171,16 @@ def _find_server_id_and_go_server_page(sb: SB) -> Tuple[Optional[str], bool]:
         screenshot(sb, f"server_id_extract_failed_{int(time.time())}.png")
         return None, False
 
+    # 直接 open URL，跳过 click
     try:
-        print(f"🧭 server_id={server_id}，点击 server-card 跳转...")
-        sb.scroll_to(SERVER_CARD_LINK_SEL)
-        time.sleep(0.3)
-        sb.click(SERVER_CARD_LINK_SEL)
+        server_url = SERVER_URL_TPL.format(server_id=server_id)
+        print(f"🧭 server_id={server_id}，打开：{server_url}")
+        sb.open(server_url)
         sb.wait_for_element_visible(NOW_MANAGING_XPATH, timeout=30)
         return server_id, True
     except Exception:
-        try:
-            server_url = SERVER_URL_TPL.format(server_id=server_id)
-            print(f"⚠️ 点击失败，直接打开：{server_url}")
-            sb.open(server_url)
-            sb.wait_for_element_visible(NOW_MANAGING_XPATH, timeout=30)
-            return server_id, True
-        except Exception:
-            screenshot(sb, f"goto_server_failed_{int(time.time())}.png")
-            return server_id, False
+        screenshot(sb, f"goto_server_failed_{int(time.time())}.png")
+        return server_id, False
 
 
 def _post_login_visit_then_logout(sb: SB) -> Tuple[Optional[str], bool]:
@@ -210,34 +204,23 @@ def _post_login_visit_then_logout(sb: SB) -> Tuple[Optional[str], bool]:
     print(f"⏳ 首页停留 {stay2} 秒...")
     time.sleep(stay2)
 
+    # 直接访问 /logout URL
     try:
-        sb.wait_for_element_visible(LOGOUT_SEL, timeout=15)
-        sb.scroll_to(LOGOUT_SEL)
-        time.sleep(0.3)
-        sb.click(LOGOUT_SEL)
-    except Exception:
-        screenshot(sb, f"logout_click_failed_{int(time.time())}.png")
-        return server_id, False
-
-    sb.wait_for_element_visible("body", timeout=30)
-    time.sleep(1)
-
-    try:
+        print(f"🚪 退出：{LOGOUT_URL}")
+        sb.open(LOGOUT_URL)
+        time.sleep(2)
         url_now = (sb.get_current_url() or "").lower()
-    except Exception:
-        url_now = ""
-
-    if "/login" in url_now:
-        return server_id, True
-
-    try:
-        if sb.is_element_visible(EMAIL_SEL) and sb.is_element_visible(PASS_SEL):
+        if "/login" in url_now or "/logout" in url_now:
             return server_id, True
-    except Exception:
-        pass
-
-    screenshot(sb, f"logout_verify_failed_{int(time.time())}.png")
-    return server_id, False
+        # 兜底：检查登录表单是否出现
+        if sb.is_element_visible(EMAIL_SEL):
+            return server_id, True
+        screenshot(sb, f"logout_verify_failed_{int(time.time())}.png")
+        return server_id, False
+    except Exception as e:
+        print(f"⚠️ 退出异常：{e}")
+        screenshot(sb, f"logout_error_{int(time.time())}.png")
+        return server_id, False
 
 
 def login_then_flow_one_account(email: str, password: str) -> Tuple[str, Optional[str], bool, str, Optional[str], bool]:
